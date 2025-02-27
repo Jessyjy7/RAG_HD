@@ -93,8 +93,8 @@ def bundle_cluster_docs_hadamard(cluster_doc_indices, hdc_vectors, hv_dim):
     bundle_doc_groups = []
 
     # Change here for bundle size
-    for start_idx in range(0, len(cluster_doc_indices), 100):
-        docs_slice = cluster_doc_indices[start_idx : start_idx + 100]
+    for start_idx in range(0, len(cluster_doc_indices), 48):
+        docs_slice = cluster_doc_indices[start_idx : start_idx + 48]
         if not docs_slice:
             break
         
@@ -131,7 +131,7 @@ print("Hadamard Binding + Bundling in groups of 100 done!")
 # Step 5: Query Retrieval with "Partial Unbundling" (Top 3 Clusters)
 ########################################################
 
-def retrieve_from_hdc_hadamard(query, top_n_clusters=3, k=100):
+def retrieve_from_hdc_hadamard(query, top_n_clusters=20, k=100):
     """
     1) Encode query => query HV
     2) Find the TOP_n nearest cluster centroids
@@ -183,5 +183,5 @@ def retrieve_from_hdc_hadamard(query, top_n_clusters=3, k=100):
 ########################################################
 
 test_query = "What is the role of neural networks in machine learning?"
-top_k_contexts, top_k_ids = retrieve_from_hdc_hadamard(query=test_query, top_n_clusters=3, k=100)
+top_k_contexts, top_k_ids = retrieve_from_hdc_hadamard(query=test_query, top_n_clusters=10, k=100)
 

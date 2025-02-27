@@ -34,7 +34,7 @@ kmeans.train(stored_vectors)
 _, cluster_assignments = kmeans.index.search(stored_vectors, 1)
 print(f"Clustering completed with {num_clusters} clusters!")
 
-def multi_cluster_retrieve(query, top_n_clusters=3, k=100):
+def multi_cluster_retrieve(query, top_n_clusters=20, k=100):
     """Retrieve top-k documents by picking top-n nearest clusters, then re-ranking those docs by distance."""
     query_vector = np.array([embedding_model.embed_query(query)])
     
@@ -68,5 +68,5 @@ def multi_cluster_retrieve(query, top_n_clusters=3, k=100):
 
 # ---- Test Query ---- #
 test_query = "What is the role of neural networks in machine learning?"
-retrieved_contexts, retrieved_indices = multi_cluster_retrieve(test_query, top_n_clusters=3, k=100)
+retrieved_contexts, retrieved_indices = multi_cluster_retrieve(test_query, top_n_clusters=20, k=100)
 
