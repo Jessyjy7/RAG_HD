@@ -279,13 +279,6 @@ ground_truth_indices = [
     4100, 6447, 7697, 3653, 8773, 7663, 273, 270, 3660, 2440
 ]
 
-# 2) Retrieve with ClusterHD
-top_k_contexts, top_k_indices = retrieve_from_hdc_hadamard(
-    query_text=args.query,
-    top_n_clusters=args.top_n_clusters,
-    k=args.k
-)
-
 # 3) Compare results
 def compare_results(ground_truth_list, clusterHD_list):
     ground_truth_set = set(ground_truth_list)
