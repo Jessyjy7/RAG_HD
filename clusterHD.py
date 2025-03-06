@@ -264,6 +264,48 @@ def main():
         top_n_clusters=args.top_n_clusters,
         k=args.k
     )
+    
+    # Suppose these are your "ground truth" indices:
+ground_truth_indices = [
+    5781, 9413, 7181, 3004, 5634, 7784, 8005, 2378, 464, 4915, 
+    4113, 6030, 2680, 8954, 6685, 3525, 2494, 7756, 2243, 409, 
+    7694, 1953, 8445, 176, 698, 5946, 9143, 6495, 8989, 3118, 
+    174, 7405, 59, 4251, 3783, 8795, 700, 3829, 6943, 3079, 
+    7893, 9295, 1921, 2569, 5988, 1061, 5546, 3095, 1126, 2809, 
+    2166, 3584, 7448, 1374, 190, 2336, 4976, 2011, 7777, 5639, 
+    7005, 1514, 7096, 1962, 1335, 2837, 3839, 7476, 8461, 768, 
+    1994, 4187, 9591, 1352, 1598, 9480, 8492, 7841, 8716, 5067, 
+    6484, 2950, 4757, 7500, 1862, 4890, 5235, 1357, 1119, 2977, 
+    4100, 6447, 7697, 3653, 8773, 7663, 273, 270, 3660, 2440
+]
+
+# 2) Retrieve with ClusterHD
+top_k_contexts, top_k_indices = retrieve_from_hdc_hadamard(
+    query_text=args.query,
+    top_n_clusters=args.top_n_clusters,
+    k=args.k
+)
+
+# 3) Compare results
+def compare_results(ground_truth_list, clusterHD_list):
+    ground_truth_set = set(ground_truth_list)
+    clusterHD_set = set(clusterHD_list)
+    intersection = ground_truth_set.intersection(clusterHD_set)
+    recall = len(intersection) / len(ground_truth_set) if ground_truth_set else 0
+    precision = len(intersection) / len(clusterHD_set) if clusterHD_set else 0
+    if (precision + recall) > 0:
+        f1 = 2 * (precision * recall) / (precision + recall)
+    else:
+        f1 = 0
+    print("\n=== Ground Truth vs. ClusterHD Comparison ===")
+    print(f"Ground Truth Count: {len(ground_truth_set)}")
+    print(f"ClusterHD Count:   {len(clusterHD_set)}")
+    print(f"Overlap Count:     {len(intersection)}")
+    print(f"Recall:    {recall:.3f}")
+    print(f"Precision: {precision:.3f}")
+    print(f"F1 Score:  {f1:.3f}")
+
+compare_results(ground_truth_indices, top_k_indices)
 
 if __name__ == "__main__":
     main()
