@@ -9,7 +9,7 @@ import faiss  # CPU or GPU Faiss
 from sklearn.cluster import KMeans
 from datasets import load_dataset
 from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS  # <-- Single-package import
+from langchain.vectorstores import FAISS  # Single-package import (langchain==0.0.xxx)
 
 # Local or custom utilities
 from hadamardHD import kronecker_hadamard
@@ -17,7 +17,7 @@ from hadamardHD import kronecker_hadamard
 def main():
     """
     Cluster HD script using single-package LangChain (e.g., langchain==0.0.265).
-    FAISS is imported from `langchain.vectorstores` instead of `langchain_community`.
+    FAISS is imported from `langchain.vectorstores` (no `allow_dangerous_deserialization`).
     """
 
     # 1. Parse command-line arguments
@@ -70,7 +70,7 @@ def main():
     print(f"\nInitializing Hugging Face embedding model '{args.model_name}'...")
     embedding_model = HuggingFaceEmbeddings(model_name=args.model_name)
 
-    # 5. Build or load the FAISS index (single-package)
+    # 5. Build or load the FAISS index (single-package approach)
     if args.build_index:
         print("\nBuilding a new FAISS index using single-package LangChain...")
         vectorstore = FAISS.from_texts(texts=documents, embedding=embedding_model)
@@ -80,10 +80,11 @@ def main():
         print(f"\nSkipping index build. Using existing index at '{args.index_path}'...")
 
     print(f"\nLoading FAISS index from '{args.index_path}'...")
+    # NOTE: Older single-package LangChain versions do NOT accept allow_dangerous_deserialization
+    # So we only pass the folder path and embeddings:
     vectorstore = FAISS.load_local(
         args.index_path,
-        embedding=embedding_model,
-        allow_dangerous_deserialization=True  # Only for trusted data
+        embedding_model
     )
     index = vectorstore.index
     num_vectors = index.ntotal
