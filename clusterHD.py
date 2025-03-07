@@ -17,7 +17,8 @@ from hadamardHD import kronecker_hadamard
 def main():
     """
     Cluster HD script with optional index rebuilding (Option B).
-    Uses `langchain_community.vectorstores.FAISS` to avoid pickle mismatch.
+    Uses `langchain_community.vectorstores.FAISS` to avoid pickle mismatch,
+    and supports adjustable group size for bundling via --group_size.
 
     Example usage to build the index:
       python clusterHD.py \
@@ -29,6 +30,7 @@ def main():
         --top_n_clusters 10 \
         --k 100 \
         --query "What is the role of neural networks in machine learning?" \
+        --group_size 48 \
         --build_index
 
     Or if you've already built the index:
@@ -40,7 +42,8 @@ def main():
         --num_clusters 200 \
         --top_n_clusters 10 \
         --k 100 \
-        --query "How do transformers differ from RNNs?"
+        --query "How do transformers differ from RNNs?" \
+        --group_size 64
         # (no --build_index)
     """
 
@@ -64,6 +67,9 @@ def main():
                         help="Query string to retrieve documents for.")
     parser.add_argument("--build_index", action="store_true",
                         help="Whether to build a new FAISS index from the dataset.")
+    parser.add_argument("--group_size", type=int, default=48,
+                        help="Number of documents per bundling group (was previously hardcoded to 48).")
+
     args = parser.parse_args()
 
     # 2. Check CUDA availability
@@ -148,11 +154,11 @@ def main():
     print("Cluster assignment done!")
 
     # 9. Unique Hadamard Keys & Bundling
-    def bundle_cluster_docs_hadamard(cluster_doc_indices, hdc_vecs, hv_dim):
+    def bundle_cluster_docs_hadamard(cluster_doc_indices, hdc_vecs, hv_dim, group_size):
         """
         For each cluster:
           - Sort doc indices,
-          - Process docs in groups (e.g., 48),
+          - Process docs in groups of size `group_size`,
           - Each doc i has a unique Hadamard key => row i in kronecker_hadamard(hv_dim, i).
           - Bind doc i's HV => key_i * HV_i,
           - Sum them => 1 "bundled HV" per group,
@@ -166,7 +172,6 @@ def main():
         bundled_hvs = []
         bundle_doc_groups = []
 
-        group_size = 48  # Adjust if needed
         for start_idx in range(0, len(cluster_doc_indices), group_size):
             docs_slice = cluster_doc_indices[start_idx : start_idx + group_size]
             if not docs_slice:
@@ -194,12 +199,13 @@ def main():
             cluster_bundled_hvs, cluster_bundled_docs = bundle_cluster_docs_hadamard(
                 doc_indices_c,
                 hdc_vectors,
-                D
+                D,
+                args.group_size  # Use the command-line argument
             )
             cluster_bundles[c_idx] = cluster_bundled_hvs
             cluster_bundles_docs[c_idx] = cluster_bundled_docs
 
-    print("Hadamard Binding + Bundling done!")
+    print(f"Hadamard Binding + Bundling done! (group_size={args.group_size})")
 
     # 10. Query Retrieval with "Partial Unbundling"
     def retrieve_from_hdc_hadamard(query_text, top_n_clusters=20, k=100):
