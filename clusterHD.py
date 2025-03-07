@@ -4,16 +4,15 @@ import argparse
 import torch
 import numpy as np
 
-# Faiss (GPU or CPU)
-import faiss
+import faiss  # CPU or GPU Faiss
 from sklearn.cluster import KMeans
 from datasets import load_dataset
-from langchain.embeddings import HuggingFaceEmbeddings
 
-# NEW recommended import (split-package)
+# langchain imports (newer approach)
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
-# Local or custom utilities
+# Local utility (make sure hadamardHD.py is in the same folder)
 from hadamardHD import kronecker_hadamard
 
 def main():
@@ -21,10 +20,10 @@ def main():
     clusterHD.py using the newer split-package approach:
       - `langchain_community.vectorstores.FAISS`
       - `allow_dangerous_deserialization=True` for loading pickled indexes
+      - KMeans from sklearn.cluster
     """
 
-    # 1. Parse command-line arguments
-    parser = argparse.ArgumentParser(description="Cluster HD with GPU adaptation, new LangChain community FAISS.")
+    parser = argparse.ArgumentParser(description="Cluster HD with KMeans & new LangChain community FAISS.")
     parser.add_argument("--dataset_name", type=str, default="neural-bridge/rag-dataset-12000",
                         help="Hugging Face dataset name/path to load.")
     parser.add_argument("--model_name", type=str, default="sentence-transformers/all-MiniLM-L6-v2",
@@ -40,49 +39,45 @@ def main():
     parser.add_argument("--k", type=int, default=100,
                         help="Number of documents to retrieve.")
     parser.add_argument("--query", type=str, default="What is the role of neural networks in machine learning?",
-                        help="Query string to retrieve documents for.")
+                        help="Query to retrieve documents for.")
     parser.add_argument("--build_index", action="store_true",
                         help="Whether to build a new FAISS index from the dataset.")
     parser.add_argument("--group_size", type=int, default=48,
                         help="Number of documents per bundling group.")
     args = parser.parse_args()
 
-    # 2. Check CUDA availability
+    # 1. Check CUDA availability
     gpu_available = torch.cuda.is_available()
-    if gpu_available:
-        print("CUDA is available. If Faiss is compiled with GPU support, it will use the GPU.")
-    else:
-        print("CUDA is not available. Using CPU-based Faiss.")
+    print(f"CUDA available: {gpu_available}")
 
-    # Confirm Faiss GPU/CPU usage
     num_gpus = faiss.get_num_gpus() if hasattr(faiss, "get_num_gpus") else 0
-    if gpu_available and num_gpus > 0:
-        print(f"Faiss reports {num_gpus} GPU(s). GPU-based Faiss should be used.")
-    else:
-        print("Using CPU-based Faiss (no GPU support detected).")
+    print(f"FAISS GPU count: {num_gpus}")
 
-    # 3. Load dataset
+    if gpu_available and num_gpus > 0:
+        print("Using GPU-based Faiss.")
+    else:
+        print("Using CPU-based Faiss.")
+
+    # 2. Load dataset
     print(f"\nLoading dataset '{args.dataset_name}' from Hugging Face...")
     dataset = load_dataset(args.dataset_name)["train"]
     documents = dataset["context"]
-    num_docs = len(documents)
-    print(f"Loaded {num_docs} documents.")
+    print(f"Loaded {len(documents)} documents.")
 
-    # 4. Load embedding model
-    print(f"\nInitializing Hugging Face embedding model '{args.model_name}'...")
+    # 3. Load embedding model
+    print(f"\nInitializing embedding model '{args.model_name}'...")
     embedding_model = HuggingFaceEmbeddings(model_name=args.model_name)
 
-    # 5. Build or load the FAISS index (NEW approach)
+    # 4. Build or load the FAISS index
     if args.build_index:
-        print("\nBuilding a new FAISS index using `langchain_community.vectorstores.FAISS`...")
+        print("\nBuilding a new FAISS index (langchain_community)...")
         vectorstore = FAISS.from_texts(texts=documents, embedding=embedding_model)
         vectorstore.save_local(args.index_path)
-        print(f"Index built and saved to '{args.index_path}'.")
+        print(f"Index saved to '{args.index_path}'.")
     else:
-        print(f"\nSkipping index build. Using existing index at '{args.index_path}'...")
+        print(f"\nLoading existing FAISS index from '{args.index_path}'...")
 
-    print(f"\nLoading FAISS index from '{args.index_path}'...")
-    # Use the new parameter `allow_dangerous_deserialization=True`:
+    # Load with allow_dangerous_deserialization=True (new approach)
     vectorstore = FAISS.load_local(
         args.index_path,
         embedding_model,
@@ -92,15 +87,14 @@ def main():
     num_vectors = index.ntotal
     print(f"Total vectors stored in FAISS: {num_vectors}")
 
-    # 6. Reconstruct stored vectors
+    # 5. Reconstruct stored vectors
     stored_vectors = np.array([index.reconstruct(i) for i in range(num_vectors)])
     print(f"Shape of stored_vectors: {stored_vectors.shape}")
 
-    # 7. Hyperdimensional Encoding (HDC)
+    # 6. Hyperdimensional Encoding (HDC)
     D = args.D
     print(f"\nEncoding {num_vectors} vectors from 384D --> {D}D hypervectors...")
 
-    # Create a binary base matrix (D x 384) for mapping
     base_matrix = np.random.uniform(-1, 1, (D, 384))
     base_matrix = np.where(base_matrix >= 0, 1, -1)
 
@@ -114,37 +108,23 @@ def main():
     hdc_vectors = encode_to_hdc(stored_vectors, base_matrix)
     print(f"HDC-encoded vectors shape: {hdc_vectors.shape}")
 
-    # 8. K-Means Clustering in HDC Space
-    num_clusters = args.num_clusters
-    print(f"\nClustering {num_vectors} hypervectors into {num_clusters} clusters...")
-
-    hdc_kmeans = KMeans(n_clusters=num_clusters, n_init=10, max_iter=300)
+    # 7. K-Means Clustering in HDC Space
+    print(f"\nClustering {num_vectors} hypervectors into {args.num_clusters} clusters...")
+    from sklearn.cluster import KMeans
+    hdc_kmeans = KMeans(n_clusters=args.num_clusters, n_init=10, max_iter=300)
     cluster_assignments = hdc_kmeans.fit_predict(hdc_vectors)
     print("HDC clustering completed!")
 
     # Group doc indices by cluster
-    clustered_indices = [[] for _ in range(num_clusters)]
+    clustered_indices = [[] for _ in range(args.num_clusters)]
     for i, c in enumerate(cluster_assignments):
         clustered_indices[c].append(i)
 
     print("Cluster assignment done!")
 
-    # 9. Unique Hadamard Keys & Bundling
+    # 8. Unique Hadamard Keys & Bundling
     def bundle_cluster_docs_hadamard(cluster_doc_indices, hdc_vecs, hv_dim, group_size):
-        """
-        For each cluster:
-          - Sort doc indices,
-          - Process docs in groups of size `group_size`,
-          - Each doc i has a unique Hadamard key => row i in kronecker_hadamard(hv_dim, i).
-          - Bind doc i's HV => key_i * HV_i,
-          - Sum them => 1 "bundled HV" per group,
-          - Track doc indices in that group.
-        Returns:
-          - A list of (bundled HV),
-          - A parallel list of doc index groups
-        """
         cluster_doc_indices = sorted(cluster_doc_indices)
-
         bundled_hvs = []
         bundle_doc_groups = []
 
@@ -154,7 +134,6 @@ def main():
                 break
 
             sum_binded = np.zeros(hv_dim)
-
             for doc_idx in docs_slice:
                 key_vec = kronecker_hadamard(hv_dim, doc_idx)
                 docHV = hdc_vecs[doc_idx]
@@ -166,10 +145,10 @@ def main():
 
         return bundled_hvs, bundle_doc_groups
 
-    cluster_bundles = [[] for _ in range(num_clusters)]
-    cluster_bundles_docs = [[] for _ in range(num_clusters)]
+    cluster_bundles = [[] for _ in range(args.num_clusters)]
+    cluster_bundles_docs = [[] for _ in range(args.num_clusters)]
 
-    for c_idx in range(num_clusters):
+    for c_idx in range(args.num_clusters):
         doc_indices_c = clustered_indices[c_idx]
         if doc_indices_c:
             cluster_bundled_hvs, cluster_bundled_docs = bundle_cluster_docs_hadamard(
@@ -183,7 +162,7 @@ def main():
 
     print(f"Hadamard Binding + Bundling done! (group_size={args.group_size})")
 
-    # 10. Query Retrieval with "Partial Unbundling"
+    # 9. Query Retrieval with "Partial Unbundling"
     def retrieve_from_hdc_hadamard(query_text, top_n_clusters=20, k=100):
         """
         1) Encode query => query HV
@@ -210,12 +189,12 @@ def main():
 
         for best_cluster in sorted_cluster_indices:
             cluster_bundledHVs = cluster_bundles[best_cluster]
-            cluster_bundledDocs = cluster_bundles_docs[best_cluster]
+            cluster_bundledDocs = cluster_bundles_docs[best_cluster]  # corrected variable
 
-            for bundleHV, doc_indices_slice in zip(cluster_bundledHVs, cluster_bundlesDocs):
+            # Zip the two lists properly
+            for bundleHV, doc_indices_slice in zip(cluster_bundledHVs, cluster_bundledDocs):
                 for doc_idx in doc_indices_slice:
                     key_vec = kronecker_hadamard(D, doc_idx)
-                    # "Unbind"
                     unboundHV = bundleHV * (1.0 / key_vec)
                     dist = np.linalg.norm(unboundHV - query_hv)
 
@@ -231,7 +210,7 @@ def main():
         print("Final List of Indices:", top_k_indices.tolist())
         return top_k_contexts, top_k_indices
 
-    # 11. Run retrieval with user-provided query
+    # 10. Run retrieval with user-provided query
     print("\n===== Test Query Retrieval =====")
     top_k_contexts, top_k_indices = retrieve_from_hdc_hadamard(
         query_text=args.query,
@@ -239,7 +218,7 @@ def main():
         k=args.k
     )
 
-    # Example: Compare results with a ground-truth list
+    # Example: Compare results with a ground-truth list (optional)
     ground_truth_indices = [
         5781, 9413, 7181, 3004, 5634, 7784, 8005, 2378, 464, 4915,
         4113, 6030, 2680, 8954, 6685, 3525, 2494, 7756, 2243, 409,
@@ -271,7 +250,7 @@ def main():
         print(f"Precision: {precision:.3f}")
         print(f"F1 Score:  {f1:.3f}")
 
-    # Uncomment if you'd like to compare automatically:
+    # Uncomment if you want to compare automatically:
     # compare_results(ground_truth_indices, top_k_indices)
 
 if __name__ == "__main__":
