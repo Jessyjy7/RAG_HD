@@ -5,46 +5,19 @@ import torch
 import numpy as np
 
 # External libraries
-import faiss  # GPU/CPU Faiss
+import faiss  # CPU or GPU Faiss
 from sklearn.cluster import KMeans
 from datasets import load_dataset
 from langchain.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import FAISS  # NEW recommended import
+from langchain.vectorstores import FAISS  # <-- Single-package import
 
 # Local or custom utilities
 from hadamardHD import kronecker_hadamard
 
 def main():
     """
-    Cluster HD script with optional index rebuilding (Option B).
-    Uses `langchain_community.vectorstores.FAISS` to avoid pickle mismatch,
-    and supports adjustable group size for bundling via --group_size.
-
-    Example usage to build the index:
-      python clusterHD.py \
-        --dataset_name "neural-bridge/rag-dataset-12000" \
-        --model_name "sentence-transformers/all-MiniLM-L6-v2" \
-        --index_path "faiss_index" \
-        --D 16384 \
-        --num_clusters 200 \
-        --top_n_clusters 10 \
-        --k 100 \
-        --query "What is the role of neural networks in machine learning?" \
-        --group_size 48 \
-        --build_index
-
-    Or if you've already built the index:
-      python clusterHD.py \
-        --dataset_name "neural-bridge/rag-dataset-12000" \
-        --model_name "sentence-transformers/all-MiniLM-L6-v2" \
-        --index_path "faiss_index" \
-        --D 16384 \
-        --num_clusters 200 \
-        --top_n_clusters 10 \
-        --k 100 \
-        --query "How do transformers differ from RNNs?" \
-        --group_size 64
-        # (no --build_index)
+    Cluster HD script using single-package LangChain (e.g., langchain==0.0.265).
+    FAISS is imported from `langchain.vectorstores` instead of `langchain_community`.
     """
 
     # 1. Parse command-line arguments
@@ -68,7 +41,7 @@ def main():
     parser.add_argument("--build_index", action="store_true",
                         help="Whether to build a new FAISS index from the dataset.")
     parser.add_argument("--group_size", type=int, default=48,
-                        help="Number of documents per bundling group (was previously hardcoded to 48).")
+                        help="Number of documents per bundling group.")
 
     args = parser.parse_args()
 
@@ -97,9 +70,9 @@ def main():
     print(f"\nInitializing Hugging Face embedding model '{args.model_name}'...")
     embedding_model = HuggingFaceEmbeddings(model_name=args.model_name)
 
-    # 5. Build or load the FAISS index (using langchain_community)
+    # 5. Build or load the FAISS index (single-package)
     if args.build_index:
-        print("\nBuilding a new FAISS index using `langchain_community`...")
+        print("\nBuilding a new FAISS index using single-package LangChain...")
         vectorstore = FAISS.from_texts(texts=documents, embedding=embedding_model)
         vectorstore.save_local(args.index_path)
         print(f"Index built and saved to '{args.index_path}'.")
@@ -109,7 +82,7 @@ def main():
     print(f"\nLoading FAISS index from '{args.index_path}'...")
     vectorstore = FAISS.load_local(
         args.index_path,
-        embedding_model,
+        embedding=embedding_model,
         allow_dangerous_deserialization=True  # Only for trusted data
     )
     index = vectorstore.index
@@ -200,7 +173,7 @@ def main():
                 doc_indices_c,
                 hdc_vectors,
                 D,
-                args.group_size  # Use the command-line argument
+                args.group_size
             )
             cluster_bundles[c_idx] = cluster_bundled_hvs
             cluster_bundles_docs[c_idx] = cluster_bundled_docs
@@ -296,7 +269,7 @@ def main():
         print(f"F1 Score:  {f1:.3f}")
 
     # Uncomment if you'd like to compare automatically:
-    compare_results(ground_truth_indices, top_k_indices)
+    # compare_results(ground_truth_indices, top_k_indices)
 
 if __name__ == "__main__":
     main()
