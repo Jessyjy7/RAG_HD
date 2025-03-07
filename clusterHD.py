@@ -251,7 +251,7 @@ def main():
         print(f"F1 Score:  {f1:.3f}")
 
     # Uncomment if you want to compare automatically:
-    # compare_results(ground_truth_indices, top_k_indices)
+    compare_results(ground_truth_indices, top_k_indices)
 
 if __name__ == "__main__":
     main()
