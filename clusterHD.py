@@ -4,24 +4,27 @@ import argparse
 import torch
 import numpy as np
 
-# External libraries
-import faiss  # CPU or GPU Faiss
+# Faiss (GPU or CPU)
+import faiss
 from sklearn.cluster import KMeans
 from datasets import load_dataset
 from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS  # Single-package import (langchain==0.0.xxx)
+
+# NEW recommended import (split-package)
+from langchain_community.vectorstores import FAISS
 
 # Local or custom utilities
 from hadamardHD import kronecker_hadamard
 
 def main():
     """
-    Cluster HD script using single-package LangChain (e.g., langchain==0.0.265).
-    FAISS is imported from `langchain.vectorstores` (no `allow_dangerous_deserialization`).
+    clusterHD.py using the newer split-package approach:
+      - `langchain_community.vectorstores.FAISS`
+      - `allow_dangerous_deserialization=True` for loading pickled indexes
     """
 
     # 1. Parse command-line arguments
-    parser = argparse.ArgumentParser(description="Cluster HD with GPU adaptation and optional index rebuild.")
+    parser = argparse.ArgumentParser(description="Cluster HD with GPU adaptation, new LangChain community FAISS.")
     parser.add_argument("--dataset_name", type=str, default="neural-bridge/rag-dataset-12000",
                         help="Hugging Face dataset name/path to load.")
     parser.add_argument("--model_name", type=str, default="sentence-transformers/all-MiniLM-L6-v2",
@@ -42,7 +45,6 @@ def main():
                         help="Whether to build a new FAISS index from the dataset.")
     parser.add_argument("--group_size", type=int, default=48,
                         help="Number of documents per bundling group.")
-
     args = parser.parse_args()
 
     # 2. Check CUDA availability
@@ -70,9 +72,9 @@ def main():
     print(f"\nInitializing Hugging Face embedding model '{args.model_name}'...")
     embedding_model = HuggingFaceEmbeddings(model_name=args.model_name)
 
-    # 5. Build or load the FAISS index (single-package approach)
+    # 5. Build or load the FAISS index (NEW approach)
     if args.build_index:
-        print("\nBuilding a new FAISS index using single-package LangChain...")
+        print("\nBuilding a new FAISS index using `langchain_community.vectorstores.FAISS`...")
         vectorstore = FAISS.from_texts(texts=documents, embedding=embedding_model)
         vectorstore.save_local(args.index_path)
         print(f"Index built and saved to '{args.index_path}'.")
@@ -80,11 +82,11 @@ def main():
         print(f"\nSkipping index build. Using existing index at '{args.index_path}'...")
 
     print(f"\nLoading FAISS index from '{args.index_path}'...")
-    # NOTE: Older single-package LangChain versions do NOT accept allow_dangerous_deserialization
-    # So we only pass the folder path and embeddings:
+    # Use the new parameter `allow_dangerous_deserialization=True`:
     vectorstore = FAISS.load_local(
         args.index_path,
-        embedding_model
+        embedding_model,
+        allow_dangerous_deserialization=True
     )
     index = vectorstore.index
     num_vectors = index.ntotal
@@ -210,7 +212,7 @@ def main():
             cluster_bundledHVs = cluster_bundles[best_cluster]
             cluster_bundledDocs = cluster_bundles_docs[best_cluster]
 
-            for bundleHV, doc_indices_slice in zip(cluster_bundledHVs, cluster_bundledDocs):
+            for bundleHV, doc_indices_slice in zip(cluster_bundledHVs, cluster_bundlesDocs):
                 for doc_idx in doc_indices_slice:
                     key_vec = kronecker_hadamard(D, doc_idx)
                     # "Unbind"
