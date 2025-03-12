@@ -5,7 +5,6 @@ import torch
 import numpy as np
 
 import faiss  # CPU or GPU Faiss
-from sklearn.cluster import KMeans
 from datasets import load_dataset
 
 # langchain imports (newer approach)
@@ -17,13 +16,11 @@ from hadamardHD import kronecker_hadamard
 
 def main():
     """
-    clusterHD.py using the newer split-package approach:
-      - `langchain_community.vectorstores.FAISS`
-      - `allow_dangerous_deserialization=True` for loading pickled indexes
-      - KMeans from sklearn.cluster
+    clusterHD.py using GPU-accelerated Faiss for KMeans clustering:
+      - Uses Faiss.Clustering with a GPU index when available.
     """
 
-    parser = argparse.ArgumentParser(description="Cluster HD with KMeans & new LangChain community FAISS.")
+    parser = argparse.ArgumentParser(description="Cluster HD with GPU Faiss Clustering & new LangChain community FAISS.")
     parser.add_argument("--dataset_name", type=str, default="neural-bridge/rag-dataset-12000",
                         help="Hugging Face dataset name/path to load.")
     parser.add_argument("--model_name", type=str, default="sentence-transformers/all-MiniLM-L6-v2",
@@ -33,7 +30,7 @@ def main():
     parser.add_argument("--D", type=int, default=16384,
                         help="Dimensionality for hypervector encoding.")
     parser.add_argument("--num_clusters", type=int, default=200,
-                        help="Number of KMeans clusters.")
+                        help="Number of clusters for Faiss clustering.")
     parser.add_argument("--top_n_clusters", type=int, default=10,
                         help="Number of top clusters to consider during retrieval.")
     parser.add_argument("--k", type=int, default=100,
@@ -54,9 +51,9 @@ def main():
     print(f"FAISS GPU count: {num_gpus}")
 
     if gpu_available and num_gpus > 0:
-        print("Using GPU-based Faiss.")
+        print("Using GPU-based Faiss for indexing and clustering.")
     else:
-        print("Using CPU-based Faiss.")
+        print("Using CPU-based Faiss for indexing and clustering.")
 
     # 2. Load dataset
     print(f"\nLoading dataset '{args.dataset_name}' from Hugging Face...")
@@ -68,7 +65,7 @@ def main():
     print(f"\nInitializing embedding model '{args.model_name}'...")
     embedding_model = HuggingFaceEmbeddings(model_name=args.model_name)
 
-    # 4. Build or load the FAISS index
+    # 4. Build or load the FAISS index for text retrieval
     if args.build_index:
         print("\nBuilding a new FAISS index (langchain_community)...")
         vectorstore = FAISS.from_texts(texts=documents, embedding=embedding_model)
@@ -100,7 +97,7 @@ def main():
 
     def encode_to_hdc(vectors, base_mat):
         """
-        Encodes 384D vectors into D-dimensional hypervectors (real values).
+        Encodes 384D vectors into D-dimensional hypervectors.
         (D x 384) * (num_vectors x 384)^T => (num_vectors x D)
         """
         return np.matmul(base_mat, vectors.T).T
@@ -108,12 +105,38 @@ def main():
     hdc_vectors = encode_to_hdc(stored_vectors, base_matrix)
     print(f"HDC-encoded vectors shape: {hdc_vectors.shape}")
 
-    # 7. K-Means Clustering in HDC Space
-    print(f"\nClustering {num_vectors} hypervectors into {args.num_clusters} clusters...")
-    from sklearn.cluster import KMeans
-    hdc_kmeans = KMeans(n_clusters=args.num_clusters, n_init=10, max_iter=300)
-    cluster_assignments = hdc_kmeans.fit_predict(hdc_vectors)
-    print("HDC clustering completed!")
+    # 7. GPU-Accelerated K-Means Clustering in HDC Space using Faiss
+    print(f"\nClustering {num_vectors} hypervectors into {args.num_clusters} clusters with Faiss...")
+    # Faiss requires float32 data
+    hdc_vectors = hdc_vectors.astype(np.float32)
+    d = hdc_vectors.shape[1]
+    ncentroids = args.num_clusters
+
+    # Set up Faiss clustering
+    clustering = faiss.Clustering(d, ncentroids)
+    clustering.verbose = True
+    clustering.niter = 300
+    # You can set a seed for reproducibility if desired:
+    # clustering.seed = 123
+
+    # Create a flat (L2) index and move it to GPU if available
+    index_flat = faiss.IndexFlatL2(d)
+    if gpu_available and num_gpus > 0:
+        res = faiss.StandardGpuResources()
+        gpu_index = faiss.index_cpu_to_gpu(res, 0, index_flat)
+        index_used = gpu_index
+    else:
+        index_used = index_flat
+
+    # Train the clustering on the HDC vectors
+    clustering.train(hdc_vectors, index_used)
+    # After training, assign each vector to its nearest centroid
+    _, cluster_assignments = index_used.search(hdc_vectors, 1)
+    cluster_assignments = cluster_assignments.flatten()
+    print("HDC clustering completed using Faiss!")
+
+    # Save centroids for later query retrieval.
+    centroids = clustering.centroids
 
     # Group doc indices by cluster
     clustered_indices = [[] for _ in range(args.num_clusters)]
@@ -169,17 +192,15 @@ def main():
         2) Find the TOP_n nearest cluster centroids
         3) Combine all doc bundles from those clusters
         4) "Unbundle" each doc => measure distance => pick top-k
-        Using doc_idx as the unique hadamard key row index.
         """
         print(f"\nQuery: {query_text}")
 
-        # Convert query to 384D
+        # Convert query to 384D using the embedding model
         query_vec_384 = embedding_model.embed_query(query_text)
         # Map query to D-dim hypervector
         query_hv = np.matmul(base_matrix, query_vec_384)
 
-        # Get cluster centroids
-        centroids = hdc_kmeans.cluster_centers_
+        # Use the centroids from Faiss clustering
         dist_to_centroids = np.linalg.norm(centroids - query_hv, axis=1)
         sorted_cluster_indices = np.argsort(dist_to_centroids)[:top_n_clusters]
         print(f"Closest {top_n_clusters} clusters:", sorted_cluster_indices)
@@ -189,9 +210,8 @@ def main():
 
         for best_cluster in sorted_cluster_indices:
             cluster_bundledHVs = cluster_bundles[best_cluster]
-            cluster_bundledDocs = cluster_bundles_docs[best_cluster]  # corrected variable
+            cluster_bundledDocs = cluster_bundles_docs[best_cluster]
 
-            # Zip the two lists properly
             for bundleHV, doc_indices_slice in zip(cluster_bundledHVs, cluster_bundledDocs):
                 for doc_idx in doc_indices_slice:
                     key_vec = kronecker_hadamard(D, doc_idx)
@@ -250,10 +270,8 @@ def main():
         print(f"Precision: {precision:.3f}")
         print(f"F1 Score:  {f1:.3f}")
 
-    # Uncomment if you want to compare automatically:
+    # Uncomment to compare automatically:
     compare_results(ground_truth_indices, top_k_indices)
 
 if __name__ == "__main__":
     main()
-
-
