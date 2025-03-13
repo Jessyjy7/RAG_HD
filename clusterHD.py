@@ -3,15 +3,10 @@
 import argparse
 import torch
 import numpy as np
-
-import faiss  # CPU or GPU Faiss
+import faiss  
 from datasets import load_dataset
-
-# langchain imports (newer approach)
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-
-# Local utility (make sure hadamardHD.py is in the same folder)
 from hadamardHD import kronecker_hadamard
 
 
@@ -118,8 +113,6 @@ def main():
     clustering = faiss.Clustering(d, ncentroids)
     clustering.verbose = True
     clustering.niter = 300
-    # You can set a seed for reproducibility if desired:
-    # clustering.seed = 123
 
     # Create a flat (L2) index and move it to GPU if available
     index_flat = faiss.IndexFlatL2(d)
@@ -244,7 +237,7 @@ def main():
         k=args.k
     )
 
-    # Example: Compare results with a ground-truth list (optional)
+    # Example: Compare results with a ground-truth list
     ground_truth_indices = [
         5781, 9413, 7181, 3004, 5634, 7784, 8005, 2378, 464, 4915,
         4113, 6030, 2680, 8954, 6685, 3525, 2494, 7756, 2243, 409,
@@ -276,7 +269,6 @@ def main():
         print(f"Precision: {precision:.3f}")
         print(f"F1 Score:  {f1:.3f}")
 
-    # Uncomment to compare automatically:
     compare_results(ground_truth_indices, top_k_indices)
 
 
