@@ -14,10 +14,12 @@ from langchain_community.vectorstores import FAISS
 # Local utility (make sure hadamardHD.py is in the same folder)
 from hadamardHD import kronecker_hadamard
 
+
 def main():
     """
-    clusterHD.py using GPU-accelerated Faiss for KMeans clustering:
+    clusterHD.py using GPU-accelerated Faiss for KMeans-like clustering:
       - Uses Faiss.Clustering with a GPU index when available.
+      - Fixes centroids pointer via faiss.vector_float_to_array().
     """
 
     parser = argparse.ArgumentParser(description="Cluster HD with GPU Faiss Clustering & new LangChain community FAISS.")
@@ -97,7 +99,7 @@ def main():
 
     def encode_to_hdc(vectors, base_mat):
         """
-        Encodes 384D vectors into D-dimensional hypervectors.
+        Encodes 384D vectors into D-dimensional hypervectors (real values).
         (D x 384) * (num_vectors x 384)^T => (num_vectors x D)
         """
         return np.matmul(base_mat, vectors.T).T
@@ -105,7 +107,7 @@ def main():
     hdc_vectors = encode_to_hdc(stored_vectors, base_matrix)
     print(f"HDC-encoded vectors shape: {hdc_vectors.shape}")
 
-    # 7. GPU-Accelerated K-Means Clustering in HDC Space using Faiss
+    # 7. GPU-Accelerated Clustering in HDC Space using Faiss
     print(f"\nClustering {num_vectors} hypervectors into {args.num_clusters} clusters with Faiss...")
     # Faiss requires float32 data
     hdc_vectors = hdc_vectors.astype(np.float32)
@@ -130,16 +132,18 @@ def main():
 
     # Train the clustering on the HDC vectors
     clustering.train(hdc_vectors, index_used)
+
+    # === IMPORTANT: Convert centroids pointer to NumPy array, then reshape ===
+    centroids_ptr = clustering.centroids  # raw pointer to centroid data
+    centroids = faiss.vector_float_to_array(centroids_ptr).reshape(ncentroids, d)
+
     # After training, assign each vector to its nearest centroid
     _, cluster_assignments = index_used.search(hdc_vectors, 1)
     cluster_assignments = cluster_assignments.flatten()
     print("HDC clustering completed using Faiss!")
 
-    # Save centroids for later query retrieval.
-    centroids = clustering.centroids
-
     # Group doc indices by cluster
-    clustered_indices = [[] for _ in range(args.num_clusters)]
+    clustered_indices = [[] for _ in range(ncentroids)]
     for i, c in enumerate(cluster_assignments):
         clustered_indices[c].append(i)
 
@@ -168,10 +172,10 @@ def main():
 
         return bundled_hvs, bundle_doc_groups
 
-    cluster_bundles = [[] for _ in range(args.num_clusters)]
-    cluster_bundles_docs = [[] for _ in range(args.num_clusters)]
+    cluster_bundles = [[] for _ in range(ncentroids)]
+    cluster_bundles_docs = [[] for _ in range(ncentroids)]
 
-    for c_idx in range(args.num_clusters):
+    for c_idx in range(ncentroids):
         doc_indices_c = clustered_indices[c_idx]
         if doc_indices_c:
             cluster_bundled_hvs, cluster_bundled_docs = bundle_cluster_docs_hadamard(
@@ -273,5 +277,7 @@ def main():
     # Uncomment to compare automatically:
     compare_results(ground_truth_indices, top_k_indices)
 
+
 if __name__ == "__main__":
     main()
+
