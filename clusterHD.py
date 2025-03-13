@@ -133,9 +133,8 @@ def main():
     # Train the clustering on the HDC vectors
     clustering.train(hdc_vectors, index_used)
 
-    # === IMPORTANT: Convert centroids pointer to NumPy array, then reshape ===
     centroids_ptr = clustering.centroids  # raw pointer to centroid data
-    centroids = faiss.vector_float_to_array(centroids_ptr).reshape(ncentroids, d)
+    centroids = np.ascontiguousarray(faiss.vector_float_to_array(centroids_ptr)).reshape(ncentroids, d)
 
     # After training, assign each vector to its nearest centroid
     _, cluster_assignments = index_used.search(hdc_vectors, 1)
