@@ -130,6 +130,9 @@ def main():
     else:
         index_used = index_flat
 
+    # Ensure hdc_vectors is C-contiguous
+    hdc_vectors = np.ascontiguousarray(hdc_vectors)
+
     # Train the clustering on the HDC vectors
     clustering.train(hdc_vectors, index_used)
 
